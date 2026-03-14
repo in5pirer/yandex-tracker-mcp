@@ -536,7 +536,12 @@ async def get_transitions(issue_id: str) -> dict:
 
 
 @mcp.tool()
-async def transition_issue(issue_id: str, transition_id: str, comment: Optional[str] = None) -> dict:
+async def transition_issue(
+    issue_id: str,
+    transition_id: str,
+    comment: Optional[str] = None,
+    resolution: Optional[str] = None,
+) -> dict:
     """Change issue status via a transition.
     Use get_transitions first to find valid transition IDs.
 
@@ -544,13 +549,16 @@ async def transition_issue(issue_id: str, transition_id: str, comment: Optional[
         issue_id: Issue key (e.g. "SUPPORT-123")
         transition_id: Transition ID (from get_transitions)
         comment: Optional comment to add during the transition
+        resolution: Optional resolution key for closing transitions (e.g. "fixed", "wontFix", "duplicate", "cantReproduce")
     """
     try:
         issue = client.issues[issue_id]
         transition = issue.transitions[transition_id]
-        kwargs = {}
+        kwargs: Dict[str, Any] = {}
         if comment:
             kwargs["comment"] = comment
+        if resolution:
+            kwargs["resolution"] = resolution
         transition.execute(**kwargs)
         return format_issue(client.issues[issue_id])
     except NotFound:

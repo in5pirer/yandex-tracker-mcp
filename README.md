@@ -33,7 +33,7 @@ MCP-сервер для работы с [Yandex Tracker API](https://tracker.yan
 | Инструмент | Описание |
 |---|---|
 | `get_transitions` | Список доступных переходов статуса для задачи |
-| `transition_issue` | Сменить статус задачи через переход |
+| `transition_issue` | Сменить статус задачи через переход (поддерживает резолюцию при закрытии) |
 
 ### Связи между задачами
 
@@ -159,7 +159,15 @@ create_issue(queue="SUPPORT", summary="Исправить ошибку", priorit
              assignee="user1", deadline="2026-03-31", tags=["баг", "срочно"])
 ```
 
-**Массово закрыть задачи:**
+**Закрыть задачу с резолюцией:**
+```
+transition_issue(issue_id="SUPPORT-123", transition_id="close",
+                 resolution="fixed", comment="Задача выполнена")
+```
+
+Доступные резолюции: `fixed`, `wontFix`, `duplicate`, `cantReproduce`.
+
+**Массово обновить задачи:**
 ```
 bulk_update_issues(issue_ids=["SUPPORT-1", "SUPPORT-2"], fields={"assignee": "user2"})
 ```
