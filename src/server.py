@@ -891,6 +891,102 @@ async def get_sprint_issues(sprint_id: str) -> dict:
         return {"error": f"Failed to get sprint issues: {e}"}
 
 
+# ─── Changelog ─────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+async def get_issue_changelog(
+    issue_id: str,
+    field: Optional[str] = None,
+    per_page: Optional[int] = 50,
+) -> dict:
+    """Get the full changelog (history of field changes) for an issue.
+
+    Useful for tracking status transitions, assignee changes, priority changes, etc.
+    Each entry shows who changed what field, from which value to which value, and when.
+
+    Args:
+        issue_id: Issue key (e.g. "SUPPORT-123")
+        field: Optional field name to filter by (e.g. "status", "assignee", "priority").
+               If not specified, returns changes for all fields.
+        per_page: Number of changelog entries per page (default: 50)
+    """
+    try:
+        params: dict = {"perPage": per_page}
+        if field:
+            params["field"] = field
+
+        all_entries = []
+        last_id = None
+
+        while True:
+            if last_id:
+                params["id"] = last_id
+            response = _raw_get(f"/v2/issues/{issue_id}/changelog", params=params)
+            entries = list(response) if response else []
+            if not entries:
+                break
+
+            for entry in entries:
+                e_id = getattr(entry, "id", None)
+                updated_at = getattr(entry, "updatedAt", None)
+                updated_by = getattr(entry, "updatedBy", None)
+                change_type = getattr(entry, "type", None)
+
+                fields_changed = []
+                for fc in getattr(entry, "fields", []):
+                    f_ref = fc.get("field") if isinstance(fc, dict) else None
+                    from_ref = fc.get("from") if isinstance(fc, dict) else None
+                    to_ref = fc.get("to") if isinstance(fc, dict) else None
+
+                    f_id = convert_reference(f_ref) if f_ref else None
+                    from_val = convert_reference(from_ref)
+                    to_val = convert_reference(to_ref)
+
+                    if isinstance(f_id, dict):
+                        field_id = f_id.get("key") or f_id.get("id")
+                        field_name = f_id.get("display")
+                    elif isinstance(f_id, str):
+                        field_id = f_id
+                        field_name = f_id
+                    else:
+                        field_id = None
+                        field_name = None
+
+                    def _display(val: Any) -> Any:
+                        if isinstance(val, dict):
+                            return val.get("display", val.get("key", str(val)))
+                        return val
+
+                    fields_changed.append({
+                        "field_id": field_id,
+                        "field_name": field_name,
+                        "from": _display(from_val),
+                        "to": _display(to_val),
+                    })
+
+                all_entries.append({
+                    "id": e_id,
+                    "updated_at": updated_at,
+                    "author": convert_reference(updated_by),
+                    "type": change_type,
+                    "fields": fields_changed,
+                })
+
+            if len(entries) < per_page:
+                break
+            last_id = all_entries[-1]["id"]
+
+        return {
+            "issue_id": issue_id,
+            "changelog": all_entries,
+            "total": len(all_entries),
+        }
+    except NotFound:
+        return {"error": f"Issue {issue_id} not found"}
+    except Exception as e:
+        return {"error": f"Failed to get changelog: {e}"}
+
+
 # ─── Projects ─────────────────────────────────────────────────────────────────
 
 @mcp.tool()
