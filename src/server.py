@@ -805,7 +805,18 @@ async def get_boards() -> dict:
     """Get all agile boards from Yandex Tracker."""
     try:
         response = _raw_get("/v3/boards")
-        return {"boards": list(response) if response else [], "total": len(response) if response else 0}
+        boards = list(response) if response else []
+        result = []
+        for b in boards:
+            if hasattr(b, "get"):
+                result.append(dict(b))
+            else:
+                result.append({
+                    "id": getattr(b, "id", None),
+                    "name": getattr(b, "name", None),
+                    "boardType": getattr(b, "boardType", None),
+                })
+        return {"boards": result, "total": len(result)}
     except Exception as e:
         return {"error": f"Failed to get boards: {e}"}
 
@@ -815,10 +826,19 @@ async def get_board(board_id: str) -> dict:
     """Get a specific agile board.
 
     Args:
-        board_id: Board ID
+        board_id: Board ID (from get_boards)
     """
     try:
-        return _raw_get(f"/v3/boards/{board_id}")
+        b = _raw_get(f"/v3/boards/{board_id}")
+        if hasattr(b, "get"):
+            return dict(b)
+        return {
+            "id": getattr(b, "id", None),
+            "name": getattr(b, "name", None),
+            "boardType": getattr(b, "boardType", None),
+            "queue": convert_reference(getattr(b, "queue", None)),
+            "filter": getattr(b, "filter", None),
+        }
     except Exception as e:
         return {"error": f"Failed to get board: {e}"}
 
