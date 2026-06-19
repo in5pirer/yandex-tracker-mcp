@@ -991,25 +991,28 @@ async def get_issue_changelog(
 
 @mcp.tool()
 async def get_project(project_id: str) -> dict:
-    """Get project details from Yandex Tracker.
+    """Get project details from Yandex Tracker via Entity API.
 
     Args:
-        project_id: Project ID to retrieve
+        project_id: Numeric project ID (shortId), e.g. "123"
     """
     try:
-        project = client.projects.get(project_id)
+        project = client.project[int(project_id)]
         return {
-            "id": project.id,
-            "key": project.key,
-            "name": project.name,
+            "id": getattr(project, "id", None),
+            "shortId": getattr(project, "shortId", None),
+            "name": getattr(project, "name", None) or getattr(project, "summary", None),
             "description": getattr(project, "description", None),
-            "lead": convert_reference(project.lead),
-            "status": getattr(project, "status", None),
+            "lead": convert_reference(getattr(project, "lead", None)),
+            "status": convert_reference(getattr(project, "status", None)),
             "startDate": getattr(project, "startDate", None),
             "endDate": getattr(project, "endDate", None),
+            "entityType": getattr(project, "entityType", None),
         }
     except NotFound:
         return {"error": f"Project {project_id} not found"}
+    except (ValueError, TypeError):
+        return {"error": f"project_id must be numeric, got: {project_id!r}"}
     except Exception as e:
         return {"error": f"Failed to get project: {e}"}
 
