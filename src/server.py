@@ -911,6 +911,12 @@ async def get_sprint_issues(sprint_id: str) -> dict:
         return {"error": f"Failed to get sprint issues: {e}"}
 
 
+def _display(val: Any) -> Any:
+    if isinstance(val, dict):
+        return val.get("display", val.get("key", str(val)))
+    return val
+
+
 # ─── Changelog ─────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -931,51 +937,39 @@ async def get_issue_changelog(
         per_page: Number of changelog entries per page (default: 50)
     """
     try:
-        params: dict = {"perPage": per_page}
+        base_params: dict = {"perPage": per_page or 50}
         if field:
-            params["field"] = field
+            base_params["field"] = field
 
         all_entries = []
         last_id = None
 
         while True:
+            page_params = dict(base_params)
             if last_id:
-                params["id"] = last_id
-            response = _raw_get(f"/v2/issues/{issue_id}/changelog", params=params)
+                page_params["id"] = last_id  # cursor: return entries after this ID
+
+            response = _raw_get(f"/v2/issues/{issue_id}/changelog", params=page_params)
             entries = list(response) if response else []
             if not entries:
                 break
 
             for entry in entries:
                 e_id = getattr(entry, "id", None)
-                updated_at = getattr(entry, "updatedAt", None)
-                updated_by = getattr(entry, "updatedBy", None)
-                change_type = getattr(entry, "type", None)
-
                 fields_changed = []
                 for fc in getattr(entry, "fields", []):
                     f_ref = fc.get("field") if isinstance(fc, dict) else None
-                    from_ref = fc.get("from") if isinstance(fc, dict) else None
-                    to_ref = fc.get("to") if isinstance(fc, dict) else None
-
                     f_id = convert_reference(f_ref) if f_ref else None
-                    from_val = convert_reference(from_ref)
-                    to_val = convert_reference(to_ref)
+                    from_val = convert_reference(fc.get("from") if isinstance(fc, dict) else None)
+                    to_val = convert_reference(fc.get("to") if isinstance(fc, dict) else None)
 
                     if isinstance(f_id, dict):
                         field_id = f_id.get("key") or f_id.get("id")
                         field_name = f_id.get("display")
                     elif isinstance(f_id, str):
-                        field_id = f_id
-                        field_name = f_id
+                        field_id = field_name = f_id
                     else:
-                        field_id = None
-                        field_name = None
-
-                    def _display(val: Any) -> Any:
-                        if isinstance(val, dict):
-                            return val.get("display", val.get("key", str(val)))
-                        return val
+                        field_id = field_name = None
 
                     fields_changed.append({
                         "field_id": field_id,
@@ -986,13 +980,13 @@ async def get_issue_changelog(
 
                 all_entries.append({
                     "id": e_id,
-                    "updated_at": updated_at,
-                    "author": convert_reference(updated_by),
-                    "type": change_type,
+                    "updated_at": getattr(entry, "updatedAt", None),
+                    "author": convert_reference(getattr(entry, "updatedBy", None)),
+                    "type": getattr(entry, "type", None),
                     "fields": fields_changed,
                 })
 
-            if len(entries) < per_page:
+            if len(entries) < (per_page or 50):
                 break
             last_id = all_entries[-1]["id"]
 
