@@ -2,6 +2,9 @@
 """MCP server for Yandex Tracker API."""
 
 import os
+import json
+import time
+import requests as _requests
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from yandex_tracker_client import TrackerClient
@@ -11,11 +14,13 @@ from datetime import datetime
 
 load_dotenv()
 
+TRACKER_API = "https://api.tracker.yandex.net"
+_TOKEN = os.getenv("YANDEX_TRACKER_TOKEN")
 _org_id = os.getenv("YANDEX_TRACKER_ORG_ID")
 _cloud_org_id = os.getenv("YANDEX_TRACKER_CLOUD_ORG_ID")
 
 client = TrackerClient(
-    token=os.getenv("YANDEX_TRACKER_TOKEN"),
+    token=_TOKEN,
     org_id=_org_id if _org_id else None,
     cloud_org_id=_cloud_org_id if _cloud_org_id else None,
 )
@@ -69,16 +74,34 @@ def format_issue(issue: Any) -> Dict[str, Any]:
     }
 
 
+def _headers() -> dict:
+    h = {"Authorization": f"OAuth {_TOKEN}", "Content-Type": "application/json"}
+    if _cloud_org_id:
+        h["X-Cloud-Org-Id"] = _cloud_org_id
+    else:
+        h["X-Org-Id"] = _org_id
+    return h
+
+
 def _raw_get(path: str, params: dict = None) -> Any:
-    return client._connection.get(path=path, params=params or {})
+    url = f"{TRACKER_API}{path}"
+    resp = _requests.get(url, headers=_headers(), params=params or {}, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _raw_post(path: str, data: dict = None) -> Any:
-    return client._connection.post(path=path, data=data or {})
+    url = f"{TRACKER_API}{path}"
+    resp = _requests.post(url, headers=_headers(), json=data or {}, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _raw_patch(path: str, data: dict = None) -> Any:
-    return client._connection.patch(path=path, data=data or {})
+    url = f"{TRACKER_API}{path}"
+    resp = _requests.patch(url, headers=_headers(), json=data or {}, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ─── Queues ───────────────────────────────────────────────────────────────────
@@ -117,14 +140,12 @@ async def get_queue(queue_key: str) -> dict:
     """
     try:
         response = _raw_get(f"/v2/queues/{queue_key}")
-        if hasattr(response, "get"):
-            return dict(response)
         return {
-            "key": getattr(response, "key", None),
-            "name": getattr(response, "name", None),
-            "description": getattr(response, "description", None),
-            "lead": convert_reference(getattr(response, "lead", None)),
-            "defaultPriority": convert_reference(getattr(response, "defaultPriority", None)),
+            "key": response.get("key"),
+            "name": response.get("name"),
+            "description": response.get("description"),
+            "lead": convert_reference(response.get("lead")),
+            "defaultPriority": convert_reference(response.get("defaultPriority")),
         }
     except Exception as e:
         return {"error": f"Failed to get queue {queue_key}: {e}"}
@@ -174,8 +195,8 @@ async def create_component(queue_key: str, name: str, description: str = None, a
             data["assignee"] = assignee
         response = _raw_post("/v2/components", data=data)
         return {
-            "id": getattr(response, "id", None),
-            "name": getattr(response, "name", name),
+            "id": response.get("id"),
+            "name": response.get("name", name),
             "queue": queue_key,
         }
     except Exception as e:
@@ -214,12 +235,10 @@ async def get_myself() -> dict:
     """Get information about the currently authenticated user."""
     try:
         response = _raw_get("/v2/myself")
-        if hasattr(response, "get"):
-            return dict(response)
         return {
-            "login": getattr(response, "login", None),
-            "display": getattr(response, "display", None),
-            "email": getattr(response, "email", None),
+            "login": response.get("login"),
+            "display": response.get("display"),
+            "email": response.get("email"),
         }
     except Exception as e:
         return {"error": f"Failed to get myself: {e}"}
@@ -439,7 +458,8 @@ async def count_issues(query: str) -> dict:
     """
     try:
         response = _raw_post("/v3/issues/_count", data={"query": query})
-        return {"count": response}
+        count = response if isinstance(response, int) else response.get("result", response.get("count", response)) if isinstance(response, dict) else response
+        return {"count": count}
     except Exception as e:
         return {"error": f"Failed to count issues: {e}"}
 
@@ -711,7 +731,7 @@ async def add_worklog(issue_id: str, duration: str, comment: Optional[str] = Non
         response = _raw_post(f"/v2/issues/{issue_id}/worklog", data=data)
         return {
             "success": True,
-            "id": getattr(response, "id", None) if not hasattr(response, "get") else response.get("id"),
+            "id": response.get("id"),
             "duration": duration,
             "issue_id": issue_id,
         }
@@ -764,7 +784,7 @@ async def add_checklist_item(issue_id: str, text: str, checked: bool = False) ->
         response = _raw_post(f"/v2/issues/{issue_id}/checklistItems", data=data)
         return {
             "success": True,
-            "id": getattr(response, "id", None) if not hasattr(response, "get") else response.get("id"),
+            "id": response.get("id"),
             "text": text,
             "checked": checked,
         }
@@ -886,9 +906,7 @@ async def create_sprint(board_id: str, name: str, start_date: str, end_date: str
     try:
         data = {"name": name, "board": {"id": board_id}, "startDate": start_date, "endDate": end_date}
         response = _raw_post("/v3/sprints", data=data)
-        if hasattr(response, "get"):
-            return {"success": True, "id": response.get("id"), "name": response.get("name")}
-        return {"success": True, "id": getattr(response, "id", None), "name": getattr(response, "name", name)}
+        return {"success": True, "id": response.get("id"), "name": response.get("name", name)}
     except Exception as e:
         return {"error": f"Failed to create sprint: {e}"}
 
@@ -955,9 +973,9 @@ async def get_issue_changelog(
                 break
 
             for entry in entries:
-                e_id = getattr(entry, "id", None)
+                e_id = entry.get("id")
                 fields_changed = []
-                for fc in getattr(entry, "fields", []):
+                for fc in entry.get("fields", []):
                     f_ref = fc.get("field") if isinstance(fc, dict) else None
                     f_id = convert_reference(f_ref) if f_ref else None
                     from_val = convert_reference(fc.get("from") if isinstance(fc, dict) else None)
@@ -980,9 +998,9 @@ async def get_issue_changelog(
 
                 all_entries.append({
                     "id": e_id,
-                    "updated_at": getattr(entry, "updatedAt", None),
-                    "author": convert_reference(getattr(entry, "updatedBy", None)),
-                    "type": getattr(entry, "type", None),
+                    "updated_at": entry.get("updatedAt"),
+                    "author": convert_reference(entry.get("updatedBy")),
+                    "type": entry.get("type"),
                     "fields": fields_changed,
                 })
 
