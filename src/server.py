@@ -343,25 +343,26 @@ async def edit_issue(
         components: New components list (optional)
     """
     try:
-        issue = client.issues[issue_id]
+        data: dict = {}
         if summary:
-            issue.summary = summary
+            data["summary"] = summary
         if description:
-            issue.description = description
+            data["description"] = description
         if type:
-            issue.type = type
+            data["type"] = type
         if priority:
-            issue.priority = priority
+            data["priority"] = priority
         if assignee:
-            issue.assignee = assignee
+            data["assignee"] = assignee
         if deadline:
-            issue.deadline = deadline
+            data["deadline"] = deadline
         if tags is not None:
-            issue.tags = tags
+            data["tags"] = tags
         if components is not None:
-            issue.components = components
-        issue.save()
-        return format_issue(issue)
+            data["components"] = components
+        if data:
+            _raw_patch(f"/v2/issues/{issue_id}", data)
+        return format_issue(client.issues[issue_id])
     except NotFound:
         return {"error": f"Issue {issue_id} not found"}
     except Exception as e:
@@ -384,10 +385,7 @@ async def bulk_update_issues(issue_ids: List[str], fields: Dict[str, Any]) -> di
         failed = []
         for issue_id in issue_ids:
             try:
-                issue = client.issues[issue_id]
-                for field, value in fields.items():
-                    setattr(issue, field, value)
-                issue.save()
+                _raw_patch(f"/v2/issues/{issue_id}", fields)
                 updated.append(issue_id)
             except Exception as e:
                 failed.append({"issue": issue_id, "error": str(e)})
